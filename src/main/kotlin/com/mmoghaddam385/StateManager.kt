@@ -37,9 +37,7 @@ data class State(val prices: Map<String, Double>, val warnings: List<String>, va
             return "no data!"
         }
 
-        val longestTicker = prices.keys.reduce { a, b ->
-            if (a.length > b.length) a else b
-        }.length
+        val longestTicker = prices.keys.maxOf { it.length }
 
         return buildString {
             for ((ticker, price) in prices) {
