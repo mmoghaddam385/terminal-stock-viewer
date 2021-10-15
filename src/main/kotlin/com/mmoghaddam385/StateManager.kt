@@ -1,85 +1,66 @@
 package com.mmoghaddam385
 
-import kotlinx.coroutines.channels.Channel
+import io.polygon.kotlin.sdk.websocket.PolygonWebSocketCluster
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.runBlocking
-import org.fusesource.jansi.Ansi
-import java.text.NumberFormat
-import java.util.*
-
-data class TickerPrice(val ticker: String, val price: Double)
-
-data class State(val prices: Map<String, Double>, val warnings: List<String>, val debugMessages: List<String>) {
-
-    private val numberFormat = NumberFormat.getCurrencyInstance(Locale.US) // Hard coded to USD for now
-
-    fun render(debugMode: Boolean) = buildString {
-        append(Ansi.ansi().bold().a("Terminal Stock Viewer\n\n").boldOff())
-
-        if (debugMode && debugMessages.isNotEmpty()) {
-            append("Debug Logs:\n")
-            debugMessages.forEach { append("\t$it\n") }
-            append("\n")
-        }
-
-        if (warnings.isNotEmpty()) {
-            append("Warnings:\n")
-            warnings.forEach { append("\t$it\n") }
-            append("\n")
-        }
-
-        append(renderPrices())
-    }
-
-    private fun renderPrices(): String {
-        if (prices.isEmpty()) {
-            return "no data!"
-        }
-
-        val longestTicker = prices.keys.maxOf { it.length }
-
-        return buildString {
-            for ((ticker, price) in prices) {
-                append("${ticker.padEnd(longestTicker)} -> ${numberFormat.format(price)}\n")
-            }
-        }
-    }
-}
+import java.time.ZonedDateTime
 
 class StateManager {
-    private val priceUpdateChannel = Channel<TickerPrice>(10_000)
 
-    private val prices = mutableMapOf<String, Double>()
+    private val prices = mutableMapOf<String, TickData>()
     private val warnings = mutableListOf<String>()
     private val debugMessages = mutableListOf<String>()
+    private val clusterStatuses = mutableMapOf<PolygonWebSocketCluster, ClusterStatus>()
 
-    private val _state = MutableStateFlow(State(mapOf(), listOf(), listOf()))
+    private val _state = MutableStateFlow(State(mapOf(), mapOf(), listOf(), listOf()))
     val state = _state.asStateFlow()
 
+    /**
+     * run will emit the state once per second second to ensure our timers update even if no trades are coming through.
+     */
     suspend fun run() {
-        for (update in priceUpdateChannel) {
-            prices[update.ticker] = update.price
-
-            val syncWarnings = synchronized(warnings) { warnings.toList() }
-            val syncDebugMessages = synchronized(debugMessages) { debugMessages.toList() }
-
-            _state.emit(State(prices.toMap(), syncWarnings, syncDebugMessages))
+        while (true) {
+            delay(1000)
+            mutateState { } // Don't actually mutate state, but trigger a state push so times get updated.
         }
     }
 
-    fun onPriceUpdate(ticker: String, price: Double) = runBlocking {
-        priceUpdateChannel.send(TickerPrice(ticker, price))
+    fun onPriceUpdate(ticker: String, price: Double, time: ZonedDateTime) = mutateState {
+        prices[ticker] = TickData(price, prices[ticker]?.previousClosePrice, time)
     }
 
-    // TODO: adding a warning or debug message doesn't trigger a new state push
+    fun setPreviousClosePrice(ticker: String, price: Double) = mutateState {
+        prices[ticker] = TickData(prices[ticker]?.price ?: 0.0, price, prices[ticker]?.lastUpdated
+                ?: ZonedDateTime.now())
+    }
 
-    fun addWarning(warning: String) = synchronized(warnings) {
+    fun setClusterStatus(cluster: PolygonWebSocketCluster, status: ClusterStatus) = mutateState {
+        clusterStatuses[cluster] = status
+
+        when (status) {
+            ClusterStatus.CONNECTED -> debugMessages.add("Connected to ${cluster.name} cluster!")
+            ClusterStatus.DISCONNECTED -> warnings.add("Disconnected from ${cluster.name} cluster!")
+        }
+    }
+
+    fun addWarning(warning: String) = mutateState {
         warnings.add(warning)
     }
 
-    fun addDebugMessage(message: String) = synchronized(debugMessages) {
+    fun addDebugMessage(message: String) = mutateState {
         debugMessages.add(message)
     }
 
+    /**
+     * mutateState runs a blocking co-routine that's synchronized such that only one call to mutateState can be running at a time.
+     * After running the provided block, a new state is emitted onto the StateFlow.
+     */
+    private fun mutateState(block: suspend () -> Unit) = synchronized(this) {
+        runBlocking {
+            block()
+            _state.emit(State(prices.toMap(), clusterStatuses.toMap(), warnings.toList(), debugMessages.toList()))
+        }
+    }
 }

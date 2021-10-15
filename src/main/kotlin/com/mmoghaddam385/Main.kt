@@ -1,5 +1,6 @@
 package com.mmoghaddam385
 
+import io.polygon.kotlin.sdk.websocket.PolygonWebSocketCluster
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
@@ -33,6 +34,14 @@ fun main() = runBlocking {
 suspend fun drawStateUpdates(config: Config, stateFlow: StateFlow<State>) {
     stateFlow.onEach { state ->
         println(Ansi.ansi().eraseScreen().render(state.render(config.debugMode)))
-        delay(100)
+        delay(100) // Don't refresh the screen too often, it causes tearing
     }.collect()
 }
+
+
+fun polygonClusterByTicker(ticker: String): PolygonWebSocketCluster =
+        when {
+            ticker.startsWith("X:") -> PolygonWebSocketCluster.Crypto
+            ticker.startsWith("C:") -> PolygonWebSocketCluster.Forex
+            else -> PolygonWebSocketCluster.Stocks
+        }
