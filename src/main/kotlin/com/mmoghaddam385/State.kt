@@ -86,7 +86,7 @@ data class State(
                     ticker = ticker,
                     price = priceFormatter.format(data.price),
                     percentChange = percentChange,
-                    priceLastUpdated = "(${Duration.between(data.lastUpdated, ZonedDateTime.now()).formatForDisplay()} old)",
+                    priceLastUpdated = "[${Duration.between(data.lastUpdated, ZonedDateTime.now()).formatForDisplay()} old]",
                     color = data.previousClosePrice?.let { if (data.price > it) Ansi.Color.GREEN else Ansi.Color.RED }
                             ?: Ansi.Color.DEFAULT,
                     strikeThrough = clusterStatuses[polygonClusterByTicker(ticker)] == ClusterStatus.DISCONNECTED,

@@ -1,5 +1,6 @@
 package com.mmoghaddam385
 
+import com.xenomachina.argparser.SystemExitException
 import io.polygon.kotlin.sdk.websocket.PolygonWebSocketCluster
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
@@ -8,11 +9,26 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.fusesource.jansi.Ansi
 import org.fusesource.jansi.AnsiConsole
+import java.io.OutputStreamWriter
+import kotlin.system.exitProcess
 
-fun main() = runBlocking {
+fun main(args: Array<out String>) = runBlocking {
     AnsiConsole.systemInstall()
 
-    val config = getConfig()
+    val config = try {
+        getConfig(args)
+    } catch (e: SystemExitException) {
+        OutputStreamWriter(System.err).use { writer ->
+            e.printUserMessage(
+                    writer,
+                    "terminal-stock-viewer",
+                    System.getenv("COLUMNS")?.toInt() ?: 100
+            )
+        }
+
+        exitProcess(e.returnCode)
+    }
+
     val stateManager = StateManager()
     val priceRetriever = PriceRetriever(config, stateManager)
 
